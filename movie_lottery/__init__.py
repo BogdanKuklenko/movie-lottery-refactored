@@ -2,7 +2,7 @@
 import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
+from flask_migrate import Migrate, upgrade
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 db = SQLAlchemy()
@@ -38,7 +38,7 @@ def create_app():
         from . import models
 
         if not os.environ.get("SKIP_DB_CREATE_ALL"):
-            db.create_all()
+            upgrade(directory="migrations")
         # -------------------------
 
         return app

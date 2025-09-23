@@ -8,6 +8,7 @@ import sys
 import types
 
 import pytest
+from flask import current_app
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -16,6 +17,11 @@ if str(PROJECT_ROOT) not in sys.path:
 if "flask_migrate" not in sys.modules:
     flask_migrate = types.ModuleType("flask_migrate")
     flask_migrate.Migrate = lambda *args, **kwargs: None
+
+    def _fake_upgrade(*args, **kwargs):
+        current_app.extensions["sqlalchemy"].create_all()
+
+    flask_migrate.upgrade = _fake_upgrade
     sys.modules["flask_migrate"] = flask_migrate
 
 
