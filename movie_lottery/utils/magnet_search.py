@@ -214,6 +214,15 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
         reverse=True,
     )
 
+    has_russian_voice = any(candidate["voice_rank"] >= 0 for candidate in classified_candidates)
+    if has_russian_voice:
+        classified_candidates = [
+            candidate for candidate in classified_candidates if candidate["voice_rank"] >= 0
+        ]
+
+    if not classified_candidates:
+        return None
+
     def _candidate_key(candidate: Dict[str, Any]) -> tuple:
         key_parts: list[Any] = []
         for metric, priority in priority_order:
@@ -225,9 +234,10 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
                 key_parts.append(-priority * candidate["size_score"])
         key_parts.extend(
             [
-                -candidate["seeders"],
+                candidate["voice_rank"] < 0,
                 -candidate["voice_score"],
                 candidate["quality_rank"],
+                -candidate["seeders"],
                 candidate["size"],
                 candidate["name"].lower(),
             ]
