@@ -14,6 +14,8 @@ from flask import current_app, has_app_context
 from .. import db
 from ..models import MovieIdentifier
 from .magnet_filters import classify_voiceover
+from .magnet_scoring import score_quality, score_size, score_voice_category
+from .search_preferences import load_search_preferences
 
 DEFAULT_SEARCH_URL = "https://apibay.org/q.php?q={query}"
 DEFAULT_TRACKERS = (
@@ -56,6 +58,13 @@ def _extract_seeders(payload: Dict[str, Any]) -> int:
             except (TypeError, ValueError):
                 continue
     return 0
+
+
+def _extract_size(payload: Dict[str, Any]) -> int:
+    try:
+        return int(payload.get("size", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _extract_info_hash(payload: Dict[str, Any]) -> Optional[str]:
@@ -107,24 +116,27 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
     if not results:
         return None
 
-    quality_keywords = ("1080p", "1080")
-    filtered: list[Dict[str, Any]] = []
-    for item in results:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or item.get("title") or "")
-        lower_name = name.lower()
-        if any(q in lower_name for q in quality_keywords):
-            filtered.append(item)
-
-    candidates = filtered or [item for item in results if isinstance(item, dict)]
+    candidates = [item for item in results if isinstance(item, dict)]
     if not candidates:
         return None
+
+    preferences = load_search_preferences()
+    priority_mapping = {
+        "quality": preferences.quality_priority,
+        "voice": preferences.voice_priority,
+        "size": preferences.size_priority,
+    }
+    priority_order = sorted(
+        [(metric, priority) for metric, priority in priority_mapping.items() if priority],
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
 
     classified_candidates: list[Dict[str, Any]] = []
     for item in candidates:
         name = str(item.get("name") or item.get("title") or query)
         voice_rank, quality_rank = classify_voiceover(name)
+        size = _extract_size(item)
         classified_candidates.append(
             {
                 "item": item,
@@ -132,32 +144,37 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
                 "voice_rank": voice_rank,
                 "quality_rank": quality_rank,
                 "seeders": _extract_seeders(item),
+                "quality_score": score_quality(quality_rank),
+                "voice_score": score_voice_category(voice_rank),
+                "size": size,
+                "size_score": score_size(size),
             }
         )
 
-    russian_candidates = [c for c in classified_candidates if c["voice_rank"] >= 0]
-    if russian_candidates:
-        full_dub = [c for c in russian_candidates if c["voice_rank"] == 0]
-        other_russian = [c for c in russian_candidates if c["voice_rank"] > 0]
-        sorted_candidates = sorted(
-            full_dub,
-            key=lambda c: (-c["seeders"], c["quality_rank"]),
+    if not classified_candidates:
+        return None
+
+    def _candidate_key(candidate: Dict[str, Any]) -> tuple:
+        key_parts: list[Any] = []
+        for metric, priority in priority_order:
+            if metric == "quality":
+                key_parts.append(-priority * candidate["quality_score"])
+            elif metric == "voice":
+                key_parts.append(-priority * candidate["voice_score"])
+            elif metric == "size":
+                key_parts.append(-priority * candidate["size_score"])
+        key_parts.extend(
+            [
+                -candidate["seeders"],
+                -candidate["voice_score"],
+                candidate["quality_rank"],
+                candidate["size"],
+                candidate["name"].lower(),
+            ]
         )
-        sorted_candidates.extend(
-            sorted(
-                other_russian,
-                key=lambda c: (-c["seeders"], c["quality_rank"]),
-            )
-        )
-        non_russian = [c for c in classified_candidates if c["voice_rank"] < 0]
-        sorted_candidates.extend(
-            sorted(non_russian, key=lambda c: (-c["seeders"], c["quality_rank"]))
-        )
-    else:
-        sorted_candidates = sorted(
-            classified_candidates,
-            key=lambda c: (-c["seeders"], c["quality_rank"]),
-        )
+        return tuple(key_parts)
+
+    sorted_candidates = sorted(classified_candidates, key=_candidate_key)
 
     trackers = _get_configured_value("MAGNET_TRACKERS", DEFAULT_TRACKERS)
     if isinstance(trackers, str):
