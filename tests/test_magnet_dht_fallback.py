@@ -144,3 +144,164 @@ def test_dht_fallback_returns_magnet_and_stores_final_link(monkeypatch):
     assert worker_result["status"] == "completed"
     assert worker_result["has_magnet"] is True
     assert worker_result["magnet_link"] == expected_magnet
+
+
+def test_search_via_dht_collects_metadata(monkeypatch):
+    from movie_lottery.utils import dht_search
+
+    sample_hash = "0123456789ABCDEF0123456789ABCDEF01234567"
+    release_name = "Example Movie 2024 WEB-DL 1080p"
+    seeder_count = 128
+
+    class _Sha1Hash:
+        def __init__(self, data):
+            self._data = bytes(data)
+
+        def to_bytes(self):
+            return self._data
+
+    class _SettingsPack:
+        enable_lsd = 1
+        enable_upnp = 2
+        enable_natpmp = 3
+        enable_dht = 4
+        alert_mask = 5
+        listen_interfaces = 6
+
+        def __init__(self):
+            self.values = {}
+
+        def set_bool(self, name, value):  # pragma: no cover - simple stub
+            self.values[name] = value
+
+        def set_int(self, name, value):  # pragma: no cover - simple stub
+            self.values[name] = value
+
+        def set_str(self, name, value):  # pragma: no cover - simple stub
+            self.values[name] = value
+
+    class _AlertCategory:
+        dht_notification = 1
+
+    class _Alert:
+        category_t = _AlertCategory()
+
+    class dht_sample_infohashes_alert:  # noqa: N801 - mimic libtorrent class name
+        def __init__(self, samples):
+            self.samples = samples
+
+        def category(self):  # pragma: no cover - compatibility
+            return 1
+
+    class metadata_received_alert:  # noqa: N801 - mimic libtorrent class name
+        def __init__(self, handle):
+            self.handle = handle
+
+    class _TorrentInfo:
+        def __init__(self, name):
+            self._name = name
+
+        def name(self):
+            return self._name
+
+    class _TorrentStatus:
+        def __init__(self, name, seeds):
+            self.name = name
+            self.num_seeds = seeds
+
+    class _Handle:
+        def __init__(self, info_hash, name, seeds):
+            self._hash = info_hash
+            self._info = _TorrentInfo(name)
+            self._status = _TorrentStatus(name, seeds)
+
+        def info_hash(self):
+            return self._hash
+
+        def get_torrent_info(self):
+            return self._info
+
+        def status(self):
+            return self._status
+
+    class _AddTorrentParams:
+        def __init__(self):
+            self.info_hash = None
+            self.flags = 0
+            self.save_path = ""
+
+    class _Session:
+        instances = []
+
+        def __init__(self, _settings):
+            self._alerts = []
+            self.removed = []
+            self.added = []
+            _Session.instances.append(self)
+
+        def add_dht_router(self, *_args, **_kwargs):  # pragma: no cover - no-op
+            return None
+
+        def start_dht(self):  # pragma: no cover - no-op
+            return None
+
+        def pause(self):  # pragma: no cover - mark paused
+            self.paused = True
+
+        def dht_sample_infohashes(self, _target):
+            sha1 = _Sha1Hash(bytes.fromhex(sample_hash))
+            self._alerts.append(dht_sample_infohashes_alert([sha1]))
+
+        def wait_for_alert(self, _timeout):
+            return self._alerts[0] if self._alerts else None
+
+        def pop_alerts(self):
+            alerts, self._alerts = self._alerts, []
+            return alerts
+
+        def add_torrent(self, params):
+            info_hash = params.info_hash
+            self.added.append(info_hash.to_bytes().hex())
+            handle = _Handle(info_hash, release_name, seeder_count)
+            self._alerts.append(metadata_received_alert(handle))
+            return handle
+
+        def remove_torrent(self, handle, *_args):
+            self.removed.append(handle.info_hash().to_bytes().hex())
+
+    class _TorrentFlags:
+        upload_mode = 1 << 0
+        stop_when_ready = 1 << 1
+        auto_managed = 1 << 2
+        duplicate_is_error = 1 << 3
+        need_save_resume = 1 << 4
+
+    class _Options:
+        delete_files = 1
+
+    class _StubLibtorrent:
+        settings_pack = _SettingsPack
+        alert = _Alert
+        torrent_flags = _TorrentFlags
+        options_t = _Options
+        session = _Session
+
+        @staticmethod
+        def add_torrent_params():
+            return _AddTorrentParams()
+
+        @staticmethod
+        def sha1_hash(data):
+            return _Sha1Hash(data)
+
+    monkeypatch.setattr(dht_search, "lt", _StubLibtorrent())
+
+    results = dht_search.search_via_dht("Example Movie")
+
+    assert results == [
+        {"name": release_name, "info_hash": sample_hash.lower(), "seeders": seeder_count}
+    ]
+
+    session = _Session.instances[0]
+    assert session.added == [sample_hash.lower()]
+    assert session.removed == [sample_hash.lower()]
