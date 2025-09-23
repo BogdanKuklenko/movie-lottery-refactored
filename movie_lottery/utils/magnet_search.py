@@ -16,6 +16,7 @@ from ..models import MovieIdentifier
 from .magnet_filters import classify_voiceover
 from .magnet_scoring import score_quality, score_size, score_voice_category
 from .search_preferences import load_search_preferences
+from .dht_search import search_via_dht
 
 DEFAULT_SEARCH_URL = "https://apibay.org/q.php?q={query}"
 DEFAULT_TRACKERS = (
@@ -120,6 +121,87 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
     if not candidates:
         return None
 
+    def _normalise_http_candidate(item: Dict[str, Any]) -> Dict[str, Any]:
+        name = str(item.get("name") or item.get("title") or query)
+        magnet_value: Optional[str] = None
+        for magnet_key in ("magnet", "magnet_link", "magnetLink"):
+            value = item.get(magnet_key)
+            if value and isinstance(value, str) and value.strip():
+                magnet_value = value.strip()
+                break
+        return {
+            "name": name,
+            "seeders": _extract_seeders(item),
+            "info_hash": _extract_info_hash(item),
+            "magnet": magnet_value,
+            "size": _extract_size(item),
+        }
+
+    http_candidates = [_normalise_http_candidate(item) for item in candidates]
+
+    def _enrich_candidates(items: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        enriched: list[Dict[str, Any]] = []
+        for payload in items:
+            name = str(payload.get("name") or query)
+            voice_rank, quality_rank = classify_voiceover(name)
+            size = int(payload.get("size") or 0)
+            seeders = int(payload.get("seeders") or 0)
+            enriched.append(
+                {
+                    "name": name,
+                    "seeders": seeders,
+                    "info_hash": payload.get("info_hash"),
+                    "magnet": payload.get("magnet"),
+                    "size": size,
+                    "voice_rank": voice_rank,
+                    "quality_rank": quality_rank,
+                    "quality_score": score_quality(quality_rank),
+                    "voice_score": score_voice_category(voice_rank),
+                    "size_score": score_size(size),
+                }
+            )
+        return enriched
+
+    classified_candidates = _enrich_candidates(http_candidates)
+
+    has_russian_1080 = any(
+        candidate["voice_rank"] >= 0 and candidate["quality_rank"] == 0
+        for candidate in classified_candidates
+    )
+
+    fallback_enabled = bool(_get_configured_value("ENABLE_DHT_FALLBACK", False))
+    if not has_russian_1080 and fallback_enabled:
+        try:
+            dht_results = search_via_dht(query)
+        except Exception as exc:  # noqa: BLE001 - фиксация ошибок DHT-поиска
+            _logger.debug("Ошибка DHT-поиска: %s", exc)
+            dht_results = []
+
+        def _normalise_dht_candidate(item: Dict[str, Any]) -> Dict[str, Any]:
+            name = str(item.get("name") or query)
+            seeders = item.get("seeders")
+            try:
+                seeders_int = int(seeders)
+            except (TypeError, ValueError):
+                seeders_int = 0
+            return {
+                "name": name,
+                "seeders": max(seeders_int, 0),
+                "info_hash": item.get("info_hash"),
+                "magnet": None,
+                "size": 0,
+            }
+
+        dht_candidates = [
+            _normalise_dht_candidate(item)
+            for item in dht_results
+            if isinstance(item, dict)
+        ]
+        classified_candidates.extend(_enrich_candidates(dht_candidates))
+
+    if not classified_candidates:
+        return None
+
     preferences = load_search_preferences()
     priority_mapping = {
         "quality": preferences.quality_priority,
@@ -131,28 +213,6 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
         key=lambda pair: pair[1],
         reverse=True,
     )
-
-    classified_candidates: list[Dict[str, Any]] = []
-    for item in candidates:
-        name = str(item.get("name") or item.get("title") or query)
-        voice_rank, quality_rank = classify_voiceover(name)
-        size = _extract_size(item)
-        classified_candidates.append(
-            {
-                "item": item,
-                "name": name,
-                "voice_rank": voice_rank,
-                "quality_rank": quality_rank,
-                "seeders": _extract_seeders(item),
-                "quality_score": score_quality(quality_rank),
-                "voice_score": score_voice_category(voice_rank),
-                "size": size,
-                "size_score": score_size(size),
-            }
-        )
-
-    if not classified_candidates:
-        return None
 
     def _candidate_key(candidate: Dict[str, Any]) -> tuple:
         key_parts: list[Any] = []
@@ -181,14 +241,13 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
         trackers = [trackers]
 
     for candidate in sorted_candidates:
-        item = candidate["item"]
         name = candidate["name"]
         if "no results" in name.lower():
             continue
-        magnet = item.get("magnet") or item.get("magnet_link") or item.get("magnetLink")
+        magnet = candidate.get("magnet")
         if magnet and isinstance(magnet, str) and magnet.strip():
             return magnet
-        info_hash = _extract_info_hash(item)
+        info_hash = candidate.get("info_hash")
         if not _is_valid_info_hash(info_hash):
             continue
         return _build_magnet(info_hash.strip(), name, trackers)
