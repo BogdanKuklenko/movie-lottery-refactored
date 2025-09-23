@@ -15,6 +15,7 @@ if (form) {
     const qualityInput = document.getElementById('quality-priority-input');
     const voiceInput = document.getElementById('voice-priority-input');
     const sizeInput = document.getElementById('size-priority-input');
+    const autoSearchToggle = document.getElementById('auto-search-toggle');
     const submitButton = form.querySelector('button[type="submit"]');
 
     const fillForm = (data) => {
@@ -22,6 +23,7 @@ if (form) {
         if (qualityInput) qualityInput.value = data.quality_priority ?? 0;
         if (voiceInput) voiceInput.value = data.voice_priority ?? 0;
         if (sizeInput) sizeInput.value = data.size_priority ?? 0;
+        if (autoSearchToggle) autoSearchToggle.checked = data.auto_search_enabled ?? true;
     };
 
     const parseInputValue = (input) => {
@@ -39,7 +41,7 @@ if (form) {
         if (submitButton) {
             submitButton.disabled = disabled;
         }
-        [qualityInput, voiceInput, sizeInput].forEach((input) => {
+        [qualityInput, voiceInput, sizeInput, autoSearchToggle].forEach((input) => {
             if (input) input.disabled = disabled;
         });
     };
@@ -64,6 +66,7 @@ if (form) {
                 quality_priority: parseInputValue(qualityInput),
                 voice_priority: parseInputValue(voiceInput),
                 size_priority: parseInputValue(sizeInput),
+                auto_search_enabled: Boolean(autoSearchToggle?.checked ?? true),
             };
 
             toggleFormDisabled(true);

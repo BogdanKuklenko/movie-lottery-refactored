@@ -64,6 +64,7 @@ class SearchPriorities:
     quality_priority: int = 0
     voice_priority: int = 0
     size_priority: int = 0
+    auto_search_enabled: bool = True
 
 
 FAKE_RESULTS = [
