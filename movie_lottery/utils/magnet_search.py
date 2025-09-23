@@ -13,6 +13,7 @@ from flask import current_app, has_app_context
 
 from .. import db
 from ..models import MovieIdentifier
+from .dht_search import search_via_dht
 from .magnet_filters import classify_voiceover
 
 DEFAULT_SEARCH_URL = "https://apibay.org/q.php?q={query}"
@@ -23,6 +24,9 @@ DEFAULT_TRACKERS = (
     "udp://9.rarbg.to:2710/announce",
     "udp://9.rarbg.me:2710/announce",
 )
+
+DEFAULT_DHT_TIMEOUT = 60
+DEFAULT_ENABLE_DHT_FALLBACK = True
 
 _logger = logging.getLogger(__name__)
 
@@ -105,35 +109,101 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
         results = []
 
     if not results:
-        return None
+        results = []
 
     quality_keywords = ("1080p", "1080")
-    filtered: list[Dict[str, Any]] = []
-    for item in results:
-        if not isinstance(item, dict):
-            continue
+
+    def _normalise_hash(value: Optional[str]) -> Optional[str]:
+        if not value or not isinstance(value, str):
+            return None
+        candidate_hash = value.strip()
+        if not _is_valid_info_hash(candidate_hash):
+            return None
+        return candidate_hash.lower()
+
+    def _normalise_magnet(value: Optional[str]) -> Optional[str]:
+        if not value or not isinstance(value, str):
+            return None
+        magnet_value = value.strip()
+        return magnet_value or None
+
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    seen_keys: set[str] = set()
+    classified_candidates: list[Dict[str, Any]] = []
+
+    def _register_candidate(name: str, seeders: int, *, magnet: Optional[str] = None, info_hash: Optional[str] = None) -> None:
+        normalized_magnet = _normalise_magnet(magnet)
+        normalized_hash = _normalise_hash(info_hash)
+
+        key: Optional[str] = None
+        if normalized_magnet:
+            key = f"magnet:{normalized_magnet}"
+        elif normalized_hash:
+            key = f"hash:{normalized_hash}"
+
+        if key and key in seen_keys:
+            return
+
+        voice_rank, quality_rank = classify_voiceover(name)
+        candidate_payload = {
+            "name": name,
+            "voice_rank": voice_rank,
+            "quality_rank": quality_rank,
+            "seeders": seeders,
+            "magnet": normalized_magnet,
+            "info_hash": normalized_hash,
+        }
+
+        if key:
+            seen_keys.add(key)
+
+        classified_candidates.append(candidate_payload)
+
+    http_candidates = [item for item in results if isinstance(item, dict)]
+    filtered = []
+    for item in http_candidates:
         name = str(item.get("name") or item.get("title") or "")
-        lower_name = name.lower()
-        if any(q in lower_name for q in quality_keywords):
+        if any(q in name.lower() for q in quality_keywords):
             filtered.append(item)
 
-    candidates = filtered or [item for item in results if isinstance(item, dict)]
-    if not candidates:
-        return None
+    candidates = filtered or http_candidates
 
-    classified_candidates: list[Dict[str, Any]] = []
     for item in candidates:
         name = str(item.get("name") or item.get("title") or query)
-        voice_rank, quality_rank = classify_voiceover(name)
-        classified_candidates.append(
-            {
-                "item": item,
-                "name": name,
-                "voice_rank": voice_rank,
-                "quality_rank": quality_rank,
-                "seeders": _extract_seeders(item),
-            }
-        )
+        magnet = item.get("magnet") or item.get("magnet_link") or item.get("magnetLink")
+        info_hash = _extract_info_hash(item)
+        seeders = _safe_int(_extract_seeders(item))
+        _register_candidate(name, seeders, magnet=magnet, info_hash=info_hash)
+
+    has_russian_1080p = any(
+        candidate["voice_rank"] >= 0 and candidate["quality_rank"] == 0
+        for candidate in classified_candidates
+    )
+
+    enable_dht = bool(_get_configured_value("ENABLE_DHT_FALLBACK", DEFAULT_ENABLE_DHT_FALLBACK))
+    if enable_dht and not has_russian_1080p:
+        dht_timeout = int(_get_configured_value("DHT_SEARCH_TIMEOUT", DEFAULT_DHT_TIMEOUT))
+        try:
+            dht_results = search_via_dht(query, timeout=dht_timeout)
+        except Exception as exc:  # noqa: BLE001 - log and continue
+            _logger.debug("Ошибка DHT-поиска: %s", exc)
+            dht_results = []
+
+        for item in dht_results or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or query)
+            info_hash = item.get("info_hash")
+            seeders = _safe_int(item.get("seeders"))
+            _register_candidate(name, seeders, info_hash=info_hash)
+
+    if not classified_candidates:
+        return None
 
     russian_candidates = [c for c in classified_candidates if c["voice_rank"] >= 0]
     if russian_candidates:
@@ -164,17 +234,16 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
         trackers = [trackers]
 
     for candidate in sorted_candidates:
-        item = candidate["item"]
         name = candidate["name"]
         if "no results" in name.lower():
             continue
-        magnet = item.get("magnet") or item.get("magnet_link") or item.get("magnetLink")
-        if magnet and isinstance(magnet, str) and magnet.strip():
+        magnet = candidate.get("magnet")
+        if magnet:
             return magnet
-        info_hash = _extract_info_hash(item)
-        if not _is_valid_info_hash(info_hash):
+        info_hash = candidate.get("info_hash")
+        if not info_hash:
             continue
-        return _build_magnet(info_hash.strip(), name, trackers)
+        return _build_magnet(info_hash, name, trackers)
     return None
 
 
@@ -197,6 +266,8 @@ def _search_worker(app, kinopoisk_id: int, query: str) -> Dict[str, Any]:
             "magnet_link": "",
         }
         try:
+            # search_best_magnet включает fallback через DHT, однако возвращает
+            # только финальную ссылку; промежуточные результаты не сохраняются.
             magnet_link = search_best_magnet(query)
             if magnet_link:
                 _store_identifier(kinopoisk_id, magnet_link)
