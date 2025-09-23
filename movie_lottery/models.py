@@ -50,3 +50,12 @@ class BackgroundPhoto(db.Model):
     rotation = db.Column(db.Integer, nullable=False)
     z_index = db.Column(db.Integer, nullable=False)
     added_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SearchPreference(db.Model):
+    __tablename__ = 'search_preference'
+
+    id = db.Column(db.Integer, primary_key=True)
+    quality_priority = db.Column(db.Integer, nullable=False, default=0)
+    voice_priority = db.Column(db.Integer, nullable=False, default=0)
+    size_priority = db.Column(db.Integer, nullable=False, default=0)
