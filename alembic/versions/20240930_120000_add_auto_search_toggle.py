@@ -6,7 +6,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20240930_120000_add_auto_search_toggle"
-down_revision = "20240715_120000_add_search_preferences"
+down_revision = "20240715_120000"
 branch_labels = None
 depends_on = None
 
