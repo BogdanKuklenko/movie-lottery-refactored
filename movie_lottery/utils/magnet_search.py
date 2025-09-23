@@ -13,6 +13,7 @@ from flask import current_app, has_app_context
 
 from .. import db
 from ..models import MovieIdentifier
+from .magnet_filters import classify_voiceover
 
 DEFAULT_SEARCH_URL = "https://apibay.org/q.php?q={query}"
 DEFAULT_TRACKERS = (
@@ -120,14 +121,51 @@ def search_best_magnet(title: str, *, session: Optional[requests.Session] = None
     if not candidates:
         return None
 
-    candidates.sort(key=_extract_seeders, reverse=True)
+    classified_candidates: list[Dict[str, Any]] = []
+    for item in candidates:
+        name = str(item.get("name") or item.get("title") or query)
+        voice_rank, quality_rank = classify_voiceover(name)
+        classified_candidates.append(
+            {
+                "item": item,
+                "name": name,
+                "voice_rank": voice_rank,
+                "quality_rank": quality_rank,
+                "seeders": _extract_seeders(item),
+            }
+        )
+
+    russian_candidates = [c for c in classified_candidates if c["voice_rank"] >= 0]
+    if russian_candidates:
+        full_dub = [c for c in russian_candidates if c["voice_rank"] == 0]
+        other_russian = [c for c in russian_candidates if c["voice_rank"] > 0]
+        sorted_candidates = sorted(
+            full_dub,
+            key=lambda c: (-c["seeders"], c["quality_rank"]),
+        )
+        sorted_candidates.extend(
+            sorted(
+                other_russian,
+                key=lambda c: (-c["seeders"], c["quality_rank"]),
+            )
+        )
+        non_russian = [c for c in classified_candidates if c["voice_rank"] < 0]
+        sorted_candidates.extend(
+            sorted(non_russian, key=lambda c: (-c["seeders"], c["quality_rank"]))
+        )
+    else:
+        sorted_candidates = sorted(
+            classified_candidates,
+            key=lambda c: (-c["seeders"], c["quality_rank"]),
+        )
 
     trackers = _get_configured_value("MAGNET_TRACKERS", DEFAULT_TRACKERS)
     if isinstance(trackers, str):
         trackers = [trackers]
 
-    for item in candidates:
-        name = str(item.get("name") or item.get("title") or query)
+    for candidate in sorted_candidates:
+        item = candidate["item"]
+        name = candidate["name"]
         if "no results" in name.lower():
             continue
         magnet = item.get("magnet") or item.get("magnet_link") or item.get("magnetLink")
