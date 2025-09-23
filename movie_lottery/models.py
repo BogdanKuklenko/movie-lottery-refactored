@@ -59,3 +59,9 @@ class SearchPreference(db.Model):
     quality_priority = db.Column(db.Integer, nullable=False, default=0)
     voice_priority = db.Column(db.Integer, nullable=False, default=0)
     size_priority = db.Column(db.Integer, nullable=False, default=0)
+    auto_search_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=True,
+        server_default=db.true(),
+    )

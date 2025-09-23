@@ -16,6 +16,7 @@ class SearchPriorities:
     quality_priority: int = 0
     voice_priority: int = 0
     size_priority: int = 0
+    auto_search_enabled: bool = True
 
 
 def load_search_preferences() -> SearchPriorities:
@@ -41,5 +42,10 @@ def load_search_preferences() -> SearchPriorities:
         quality_priority=int(preference.quality_priority or 0),
         voice_priority=int(preference.voice_priority or 0),
         size_priority=int(preference.size_priority or 0),
+        auto_search_enabled=bool(
+            preference.auto_search_enabled
+            if preference.auto_search_enabled is not None
+            else True
+        ),
     )
 

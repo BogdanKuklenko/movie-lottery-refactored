@@ -11,6 +11,7 @@ from ..utils.helpers import generate_unique_id, ensure_background_photo
 from ..utils.qbittorrent import get_active_torrents_map
 from ..utils.torrent_status import qbittorrent_client, torrent_to_json
 from ..utils.magnet_search import get_search_status, start_background_search
+from ..utils.search_preferences import load_search_preferences
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -18,7 +19,7 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 def _get_or_create_search_preferences():
     preference = SearchPreference.query.get(1)
     if preference is None:
-        preference = SearchPreference(id=1)
+        preference = SearchPreference(id=1, auto_search_enabled=True)
         db.session.add(preference)
         db.session.commit()
     return preference
@@ -29,6 +30,11 @@ def _serialize_preferences(preference: SearchPreference) -> dict:
         "quality_priority": preference.quality_priority,
         "voice_priority": preference.voice_priority,
         "size_priority": preference.size_priority,
+        "auto_search_enabled": bool(
+            preference.auto_search_enabled
+            if preference.auto_search_enabled is not None
+            else True
+        ),
     }
 
 
@@ -65,10 +71,20 @@ def update_search_priority_settings():
             "message": "Некорректные значения приоритетов.",
         }), 400
 
+    auto_search_enabled = data.get('auto_search_enabled')
+    if auto_search_enabled is None:
+        auto_search_enabled = True
+    elif not isinstance(auto_search_enabled, bool):
+        return jsonify({
+            "success": False,
+            "message": "Некорректное значение авто-поиска.",
+        }), 400
+
     preference = _get_or_create_search_preferences()
     preference.quality_priority = quality_priority
     preference.voice_priority = voice_priority
     preference.size_priority = size_priority
+    preference.auto_search_enabled = auto_search_enabled
     db.session.commit()
 
     return jsonify({
@@ -214,9 +230,11 @@ def create_lottery():
 
     db.session.commit()
 
-    for candidate in search_candidates:
-        if candidate['query']:
-            start_background_search(candidate['kinopoisk_id'], candidate['query'])
+    preferences = load_search_preferences()
+    if preferences.auto_search_enabled:
+        for candidate in search_candidates:
+            if candidate['query']:
+                start_background_search(candidate['kinopoisk_id'], candidate['query'])
 
     # url_for для маршрутов в других blueprint'ах требует указания имени blueprint'а
     wait_url = url_for('main.wait_for_result', lottery_id=new_lottery.id)
@@ -338,14 +356,16 @@ def add_library_movie():
     db.session.commit()
 
     if target_kinopoisk_id:
-        query = _compose_search_query(
-            target_kinopoisk_id,
-            fallback_name=movie_data.get('name'),
-            fallback_year=movie_data.get('year'),
-            fallback_search_name=movie_data.get('search_name'),
-        )
-        if query:
-            start_background_search(target_kinopoisk_id, query)
+        preferences = load_search_preferences()
+        if preferences.auto_search_enabled:
+            query = _compose_search_query(
+                target_kinopoisk_id,
+                fallback_name=movie_data.get('name'),
+                fallback_year=movie_data.get('year'),
+                fallback_search_name=movie_data.get('search_name'),
+            )
+            if query:
+                start_background_search(target_kinopoisk_id, query)
 
     return jsonify({"success": True, "message": message})
 
