@@ -16,6 +16,19 @@ export function initSlider(sliderContainer, onDelete) {
         return;
     }
 
+    const getPointerClientX = (event, fallback = 0) => {
+        if (typeof event.clientX === 'number' && !Number.isNaN(event.clientX)) {
+            return event.clientX;
+        }
+        if (event.touches && event.touches.length > 0) {
+            return event.touches[0].clientX;
+        }
+        if (event.changedTouches && event.changedTouches.length > 0) {
+            return event.changedTouches[0].clientX;
+        }
+        return fallback;
+    };
+
     let isDragging = false;
     let startX = 0;
     // Рассчитываем максимальное расстояние для перетаскивания
@@ -25,7 +38,7 @@ export function initSlider(sliderContainer, onDelete) {
     const onMouseMove = (e) => {
         if (!isDragging) return;
         // Получаем текущую координату X (работает и для мыши, и для тач-событий)
-        const currentX = e.clientX || e.touches[0].clientX;
+        const currentX = getPointerClientX(e, startX);
         let moveX = currentX - startX;
 
         // Ограничиваем движение бегунка в пределах трека
@@ -40,8 +53,8 @@ export function initSlider(sliderContainer, onDelete) {
     const onMouseUp = (e) => {
         if (!isDragging) return;
         isDragging = false;
-        
-        const currentX = e.clientX || e.changedTouches[0].clientX;
+
+        const currentX = getPointerClientX(e, startX);
         const moveX = currentX - startX;
 
         // Проверяем, дотащил ли пользователь бегунок до конца
@@ -56,7 +69,7 @@ export function initSlider(sliderContainer, onDelete) {
             fill.style.transition = 'width 0.3s ease';
             thumb.style.transform = 'translateX(0px)';
             fill.style.width = '0px';
-            
+
             // Убираем transition после анимации, чтобы следующее перетаскивание было мгновенным
             setTimeout(() => {
                 thumb.style.transition = '';
@@ -75,17 +88,17 @@ export function initSlider(sliderContainer, onDelete) {
     const onMouseDown = (e) => {
         // Предотвращаем стандартное поведение, например, выделение текста
         e.preventDefault();
-        
+
         isDragging = true;
-        startX = e.clientX || e.touches[0].clientX;
-        
+        startX = getPointerClientX(e, startX);
+
         // Добавляем глобальные обработчики на весь документ
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
         document.addEventListener('touchmove', onMouseMove);
         document.addEventListener('touchend', onMouseUp);
     };
-    
+
     // Навешиваем начальные обработчики на сам бегунок
     thumb.addEventListener('mousedown', onMouseDown);
     thumb.addEventListener('touchstart', onMouseDown);
