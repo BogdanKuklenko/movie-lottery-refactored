@@ -36,7 +36,9 @@ def create_app():
         # --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
         # Импортируем модели и принудительно создаем все таблицы
         from . import models
-        db.create_all()
+
+        if not os.environ.get("SKIP_DB_CREATE_ALL"):
+            db.create_all()
         # -------------------------
-        
+
         return app
