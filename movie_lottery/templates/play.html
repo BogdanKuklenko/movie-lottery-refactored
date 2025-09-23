@@ -14,6 +14,11 @@
 <body>
     <div class="background-rotator"></div>
     <div class="container play-container">
+        <div class="nav-links play-nav">
+            <a href="{{ url_for('main.index') }}" class="nav-button">Создание</a>
+            <a href="{{ url_for('main.history') }}" class="nav-button">История</a>
+            <a href="{{ url_for('main.settings') }}" class="nav-button">Настройки</a>
+        </div>
         {% if not result %}
             <div id="pre-draw">
                 <h1>Вам предстоит выбрать фильм!</h1>

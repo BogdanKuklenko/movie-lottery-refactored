@@ -64,6 +64,12 @@ def library():
         background_photos=get_background_photos()
     )
 
+
+@main_bp.route('/settings')
+def settings():
+    return render_template('settings.html', background_photos=get_background_photos())
+
+
 @main_bp.route('/l/<lottery_id>')
 def play_lottery(lottery_id):
     lottery = Lottery.query.get_or_404(lottery_id)

@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify, url_for, current_app
 from qbittorrentapi import Client, exceptions as qbittorrent_exceptions
 
 from .. import db
-from ..models import Movie, Lottery, MovieIdentifier, LibraryMovie
+from ..models import Movie, Lottery, MovieIdentifier, LibraryMovie, SearchPreference
 from ..utils.kinopoisk import get_movie_data_from_kinopoisk
 from ..utils.helpers import generate_unique_id, ensure_background_photo
 from ..utils.qbittorrent import get_active_torrents_map
@@ -13,6 +13,68 @@ from ..utils.torrent_status import qbittorrent_client, torrent_to_json
 from ..utils.magnet_search import get_search_status, start_background_search
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+def _get_or_create_search_preferences():
+    preference = SearchPreference.query.get(1)
+    if preference is None:
+        preference = SearchPreference(id=1)
+        db.session.add(preference)
+        db.session.commit()
+    return preference
+
+
+def _serialize_preferences(preference: SearchPreference) -> dict:
+    return {
+        "quality_priority": preference.quality_priority,
+        "voice_priority": preference.voice_priority,
+        "size_priority": preference.size_priority,
+    }
+
+
+def _parse_priority_value(data: dict, key: str) -> int:
+    value = data.get(key)
+    if isinstance(value, bool) or value is None:
+        raise ValueError
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError from exc
+
+
+# --- Маршруты для настроек ---
+
+
+@api_bp.route('/settings/search-priority', methods=['GET'])
+def get_search_priority_settings():
+    preference = _get_or_create_search_preferences()
+    return jsonify(_serialize_preferences(preference))
+
+
+@api_bp.route('/settings/search-priority', methods=['POST'])
+def update_search_priority_settings():
+    data = request.get_json(silent=True) or {}
+
+    try:
+        quality_priority = _parse_priority_value(data, 'quality_priority')
+        voice_priority = _parse_priority_value(data, 'voice_priority')
+        size_priority = _parse_priority_value(data, 'size_priority')
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Некорректные значения приоритетов.",
+        }), 400
+
+    preference = _get_or_create_search_preferences()
+    preference.quality_priority = quality_priority
+    preference.voice_priority = voice_priority
+    preference.size_priority = size_priority
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "settings": _serialize_preferences(preference),
+    })
 
 
 def _compose_search_query(

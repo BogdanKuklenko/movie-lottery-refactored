@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Кино-лотерея: Настройки</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-rotator"></div>
+    <div class="container settings-page">
+        <header>
+            <h1>Настройки поиска торрентов</h1>
+            <p>Настройте приоритеты поиска, чтобы получать результаты, которые подходят именно вам.</p>
+            <div class="nav-links">
+                <a href="{{ url_for('main.index') }}" class="nav-button">Создание</a>
+                <a href="{{ url_for('main.library') }}" class="nav-button">Библиотека</a>
+                <a href="{{ url_for('main.history') }}" class="nav-button">История</a>
+            </div>
+        </header>
+
+        <section class="settings-card">
+            <h2>Приоритеты поиска</h2>
+            <form id="search-priority-form" class="settings-form">
+                <div class="settings-grid">
+                    <label class="settings-field" for="quality-priority-input">
+                        <span>Приоритет качества</span>
+                        <input type="number" id="quality-priority-input" name="quality_priority" step="1" value="0" required>
+                    </label>
+                    <label class="settings-field" for="voice-priority-input">
+                        <span>Приоритет озвучки</span>
+                        <input type="number" id="voice-priority-input" name="voice_priority" step="1" value="0" required>
+                    </label>
+                    <label class="settings-field" for="size-priority-input">
+                        <span>Приоритет размера</span>
+                        <input type="number" id="size-priority-input" name="size_priority" step="1" value="0" required>
+                    </label>
+                </div>
+                <p class="settings-hint">Бóльшие значения означают более важный критерий при поиске.</p>
+                <div class="settings-actions">
+                    <button type="submit" class="cta-button">Сохранить</button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+    <script>
+        var backgroundPhotos = {{ background_photos|tojson }};
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/background.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/pages/settings.js') }}"></script>
+</body>
+</html>
