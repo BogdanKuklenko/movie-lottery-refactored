@@ -69,22 +69,28 @@ class SearchPriorities:
 
 FAKE_RESULTS = [
     {
-        "name": "Фильм 1080p без перевода",
-        "magnet": "magnet_quality",
-        "seeders": 100,
+        "name": "Фильм 4K полный дубляж",
+        "magnet": "magnet_voice_priority",
+        "seeders": 70,
         "size": 2500,
     },
     {
-        "name": "Фильм 720p полный дубляж",
-        "magnet": "magnet_voice",
-        "seeders": 60,
-        "size": 2000,
+        "name": "Фильм 1080p многоголос",
+        "magnet": "magnet_quality_priority",
+        "seeders": 120,
+        "size": 2800,
     },
     {
-        "name": "Фильм 720p многоголос",
-        "magnet": "magnet_size",
-        "seeders": 40,
-        "size": 1200,
+        "name": "Фильм 720p профессиональный дубляж компактный релиз",
+        "magnet": "magnet_size_priority",
+        "seeders": 90,
+        "size": 1400,
+    },
+    {
+        "name": "Фильм 1080p без перевода",
+        "magnet": "magnet_without_voice",
+        "seeders": 600,
+        "size": 2600,
     },
 ]
 
@@ -120,9 +126,18 @@ def _stub_tracker_session(monkeypatch):
 @pytest.mark.parametrize(
     ("priorities", "expected_magnet"),
     [
-        (SearchPriorities(quality_priority=5, voice_priority=1, size_priority=0), "magnet_quality"),
-        (SearchPriorities(quality_priority=1, voice_priority=5, size_priority=0), "magnet_voice"),
-        (SearchPriorities(quality_priority=0, voice_priority=0, size_priority=5), "magnet_size"),
+        (
+            SearchPriorities(quality_priority=5, voice_priority=1, size_priority=0),
+            "magnet_quality_priority",
+        ),
+        (
+            SearchPriorities(quality_priority=1, voice_priority=5, size_priority=0),
+            "magnet_voice_priority",
+        ),
+        (
+            SearchPriorities(quality_priority=0, voice_priority=0, size_priority=5),
+            "magnet_size_priority",
+        ),
     ],
 )
 def test_priority_order_changes_winner(monkeypatch, priorities, expected_magnet):
@@ -147,5 +162,17 @@ def test_preferences_reload_between_calls(monkeypatch):
     first_result = magnet_search.search_best_magnet("Фильм")
     second_result = magnet_search.search_best_magnet("Фильм")
 
-    assert first_result == "magnet_quality"
-    assert second_result == "magnet_voice"
+    assert first_result == "magnet_quality_priority"
+    assert second_result == "magnet_voice_priority"
+
+
+def test_prefers_russian_voice_over_popular_non_russian_release(monkeypatch):
+    monkeypatch.setattr(
+        magnet_search,
+        "load_search_preferences",
+        lambda: SearchPriorities(quality_priority=0, voice_priority=0, size_priority=0),
+    )
+
+    result = magnet_search.search_best_magnet("Фильм")
+
+    assert result == "magnet_voice_priority"
