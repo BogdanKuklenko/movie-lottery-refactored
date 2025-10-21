@@ -2,6 +2,7 @@
 
 import { ModalManager } from '../components/modal.js';
 import * as movieApi from '../api/movies.js';
+import { downloadTorrentToClient, deleteTorrentFromClient } from '../api/torrents.js';
 
 function formatDate(isoString) {
     if (!isoString) return '';
@@ -932,14 +933,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Конец функционала управления бейджами ---
 
+    const notify = (message, type = 'info') => {
+        if (typeof showToast === 'function') {
+            showToast(message, type);
+        } else {
+            const logger = type === 'error' ? console.error : console.log;
+            logger(message);
+        }
+    };
+
     const handleOpenModal = (card) => {
         const movieData = getMovieDataFromCard(card);
         modalElement.dataset.activeCardId = card.dataset.movieId || '';
         modal.open();
-        modal.renderLibraryModal(movieData, {
+        const actions = {
             onSaveMagnet: async (kinopoiskId, magnetLink) => {
                 const result = await movieApi.saveMagnetLink(kinopoiskId, magnetLink);
-                showToast(result.message, 'success');
+                notify(result.message, 'success');
                 // Обновляем данные и иконку на карточке
                 card.dataset.hasMagnet = result.has_magnet.toString();
                 card.dataset.magnetLink = result.magnet_link;
@@ -952,14 +962,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         modal.close();
                         card.remove();
                     }
-                    showToast(data.message, data.success ? 'success' : 'error');
+                    notify(data.message, data.success ? 'success' : 'error');
                 });
             },
             onSetBadge: async (movieId, badgeType) => {
                 try {
                     await setBadge(movieId, badgeType);
                     updateBadgeOnCard(card, badgeType);
-                    showToast('Бейдж установлен', 'success');
+                    notify('Бейдж установлен', 'success');
                     handleOpenModal(card);
                 } catch (error) {
                     // Ошибка уже обработана в setBadge
@@ -969,13 +979,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     await removeBadge(movieId);
                     updateBadgeOnCard(card, null);
-                    showToast('Бейдж удалён', 'success');
+                    notify('Бейдж удалён', 'success');
                     handleOpenModal(card);
                 } catch (error) {
                     // Ошибка уже обработана в removeBadge
                 }
+            },
+            onDownload: async () => {
+                try {
+                    const result = await downloadTorrentToClient({
+                        magnetLink: card.dataset.magnetLink,
+                        title: movieData.name,
+                    });
+                    const status = result.success ? 'success' : 'info';
+                    notify(result.message || 'Операция выполнена.', status);
+                    if (result.success) {
+                        card.classList.add('has-torrent-on-client');
+                        card.dataset.torrentHash = result.torrent_hash || card.dataset.torrentHash || '';
+                        handleOpenModal(card);
+                    }
+                } catch (error) {
+                    notify(error.message || 'Не удалось отправить торрент в клиент.', 'error');
+                }
+            },
+            onDeleteTorrent: async (torrentHash) => {
+                try {
+                    const result = await deleteTorrentFromClient(torrentHash);
+                    const status = result.success ? 'success' : 'info';
+                    notify(result.message || 'Операция выполнена.', status);
+                    if (result.success) {
+                        card.classList.remove('has-torrent-on-client');
+                        card.dataset.torrentHash = '';
+                        handleOpenModal(card);
+                    }
+                } catch (error) {
+                    notify(error.message || 'Не удалось удалить торрент с клиента.', 'error');
+                }
             }
-        });
+        };
+
+        modal.renderLibraryModal(movieData, actions);
     };
 
     // АВТОПОИСК МАГНЕТ-ССЫЛОК ОТКЛЮЧЕН

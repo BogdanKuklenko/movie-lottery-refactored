@@ -2,6 +2,7 @@
 
 import { ModalManager } from '../components/modal.js';
 import * as movieApi from '../api/movies.js';
+import { downloadTorrentToClient, deleteTorrentFromClient } from '../api/torrents.js';
 
 function formatDate(isoString) {
     if (!isoString) return '';
@@ -52,6 +53,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const modal = new ModalManager(modalElement);
 
+    const notify = (message, type = 'info') => {
+        if (typeof showToast === 'function') {
+            showToast(message, type);
+        } else {
+            const logger = type === 'error' ? console.error : console.log;
+            logger(message);
+        }
+    };
+
     const handleOpenModal = async (lotteryId) => {
         const card = document.querySelector(`.gallery-item[data-lottery-id="${lotteryId}"]`);
         modalElement.dataset.activeLotteryId = lotteryId;
@@ -64,10 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     lotteryData.result.torrent_hash = card.dataset.torrentHash || '';
                 }
 
-                modal.renderHistoryModal(lotteryData, {
+                const actions = {
                     onSaveMagnet: async (kinopoiskId, magnetLink) => {
                         const result = await movieApi.saveMagnetLink(kinopoiskId, magnetLink);
-                        showToast(result.message, result.success ? 'success' : 'error');
+                        notify(result.message, result.success ? 'success' : 'error');
                         // Обновляем данные и иконку на карточке
                         if (card) {
                             card.dataset.hasMagnet = result.has_magnet.toString();
@@ -76,8 +86,45 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         handleOpenModal(lotteryId);
                     },
-                    onAddToLibrary: (movieData) => movieApi.addOrUpdateLibraryMovie(movieData).then(data => showToast(data.message, data.success ? 'success' : 'error'))
-                });
+                    onAddToLibrary: (movieData) => movieApi.addOrUpdateLibraryMovie(movieData).then(data => notify(data.message, data.success ? 'success' : 'error')),
+                    onDownload: async () => {
+                        try {
+                            const result = await downloadTorrentToClient({
+                                magnetLink: lotteryData.result.magnet_link,
+                                title: lotteryData.result.name,
+                            });
+                            const status = result.success ? 'success' : 'info';
+                            notify(result.message || 'Операция выполнена.', status);
+                            if (result.success && card) {
+                                card.classList.add('has-torrent-on-client');
+                                card.dataset.torrentHash = result.torrent_hash || card.dataset.torrentHash || '';
+                                lotteryData.result.is_on_client = true;
+                                lotteryData.result.torrent_hash = card.dataset.torrentHash;
+                                handleOpenModal(lotteryId);
+                            }
+                        } catch (error) {
+                            notify(error.message || 'Не удалось отправить торрент в клиент.', 'error');
+                        }
+                    },
+                    onDeleteTorrent: async (torrentHash) => {
+                        try {
+                            const result = await deleteTorrentFromClient(torrentHash);
+                            const status = result.success ? 'success' : 'info';
+                            notify(result.message || 'Операция выполнена.', status);
+                            if (result.success && card) {
+                                card.classList.remove('has-torrent-on-client');
+                                card.dataset.torrentHash = '';
+                                lotteryData.result.is_on_client = false;
+                                lotteryData.result.torrent_hash = '';
+                                handleOpenModal(lotteryId);
+                            }
+                        } catch (error) {
+                            notify(error.message || 'Не удалось удалить торрент с клиента.', 'error');
+                        }
+                    }
+                };
+
+                modal.renderHistoryModal(lotteryData, actions);
             } else {
                 modal.renderWaitingModal(lotteryData);
             }
