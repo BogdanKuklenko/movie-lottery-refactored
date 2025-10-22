@@ -300,6 +300,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         </button>
                         <a href="${poll.poll_url}" class="secondary-button" target="_blank">Открыть опрос</a>
                     </div>
+                    <a href="https://t.me/share/url?url=${encodeURIComponent(poll.poll_url)}&text=${encodeURIComponent('Приглашаю принять участие в опросе')}"
+                       class="action-button-tg" target="_blank">
+                        Поделиться в Telegram
+                    </a>
                 </div>
             `;
         });
