@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!response.ok || !data.success) {
                         throw new Error(data.message || 'Не удалось добавить фильм.');
                     }
-                    showToast(data.message || 'Фильм добавлен в библиотеку.', 'success');
+                    showToast(data.message || 'Фильм добавлен в библиотеку', 'success');
                     e.target.textContent = 'Добавлено!';
                 } catch (error) {
                     showToast(error.message, 'error');
