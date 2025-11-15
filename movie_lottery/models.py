@@ -41,6 +41,7 @@ class LibraryMovie(db.Model):
     genres = db.Column(db.String(200), nullable=True)
     countries = db.Column(db.String(200), nullable=True)
     added_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_interaction_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     badge = db.Column(db.String(20), nullable=True)  # Бейдж: favorite, watchlist, top, watched, new
 
 class BackgroundPhoto(db.Model):
