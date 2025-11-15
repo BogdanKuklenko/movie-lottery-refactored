@@ -52,7 +52,7 @@ def history():
 
 @main_bp.route('/library')
 def library():
-    library_movies = LibraryMovie.query.order_by(LibraryMovie.added_at.desc()).all()
+    library_movies = LibraryMovie.query.order_by(LibraryMovie.last_interaction_at.desc()).all()
     
     # Fetch all identifiers in one query to avoid N+1
     kp_ids = [m.kinopoisk_id for m in library_movies if m.kinopoisk_id]

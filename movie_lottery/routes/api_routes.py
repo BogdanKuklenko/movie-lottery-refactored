@@ -143,10 +143,14 @@ def add_library_movie():
         ).first()
 
     if existing_movie:
+        updatable_fields = {
+            'kinopoisk_id', 'name', 'search_name', 'poster', 'year',
+            'description', 'rating_kp', 'genres', 'countries', 'badge'
+        }
         for key, value in movie_data.items():
-            if hasattr(existing_movie, key) and value is not None:
+            if key in updatable_fields and value is not None:
                 setattr(existing_movie, key, value)
-        existing_movie.added_at = db.func.now()
+        existing_movie.last_interaction_at = db.func.now()
         message = "Фильм уже есть в библиотеке"
     else:
         new_movie = LibraryMovie(**movie_data)
